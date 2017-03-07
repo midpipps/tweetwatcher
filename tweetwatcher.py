@@ -6,28 +6,35 @@ import re
 import os
 import smtplib
 import json
+import configparser
 from email.mime.text import MIMEText
 from urllib.request import urlopen
 from elasticsearch import Elasticsearch
 
 #email stuff
-SPLIT_VALUE = 4 #if the calculated value is greater than this value it will send an email
-TO_ADDRESS = 'email'
-FROM_ADDRESS = 'email'
-SUBJECT = 'TWITTERBOT HIT:'
 USE_EMAIL = True
-EMAIL_SERVER = 'emailserver'
-CONTINUE_RUNNING = True
+EMAIL_SPLIT_VALUE = 4 #if the calculated value is greater than this value it will send an email
+EMAIL_TO_ADDRESS = 'email'
+EMAIL_FROM_ADDRESS = 'email'
+EMAIL_SUBJECT = 'TWITTERBOT HIT:'
+EMAIL_HOST = 'emailserver'
 
 # access keys
-CONSUMER_KEY = ''
-CONSUMER_SECRET = ''
-ACCESS_TOKEN = ''
-ACCESS_SECRET = ''
+TWITTER_CONSUMER_KEY = ''
+TWITTER_CONSUMER_SECRET = ''
+TWITTER_ACCESS_TOKEN = ''
+TWITTER_ACCESS_SECRET = ''
 
 #elasticsearch junk
+USE_ELASTIC = False
 ELASTIC_UNAME = ''
 ELASTIC_PASSWORD = ''
+ELASTIC_HOST = ''
+ELASTIC_PORT = 9200
+
+
+#program variables
+CONTINUE_RUNNING = True
 
 # setup api and authenticate
 auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
@@ -152,18 +159,50 @@ def fetchDump(dumpUrl, filedatecode, created_at):
 	fh.close()
 	return
 
+def parseconfig():
+    '''
+    Parses the config into its global variables
+    '''
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    twitterconfig = config['twitter']
+    if twitterconfig:
+        TWITTER_CONSUMER_KEY = twitterconfig.get('CONSUMER_KEY')
+        TWITTER_CONSUMER_SECRET = twitterconfig.get('CONSUMER_SECRET')
+        TWITTER_ACCESS_TOKEN = twitterconfig.get('ACCESS_TOKEN')
+        TWITTER_ACCESS_SECRET = twitterconfig.get('ACCESS_SECRET')
 	
-while CONTINUE_RUNNING:
-	streamlistener = DumpMonStreamListener()
-	mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
-	try:
-		mystream.filter(follow=search_users, track=list(search_regexes.keys()))
-	except KeyboardInterrupt:
-		print('keyboard interrupt happened')
-		CONTINUE_RUNNING = False
-		mystream.disconnect()
-	except Exception as ex:
-		print('there was an issue waiting 10 minutes before trying again' + str(ex))
-		time.sleep(600)
-		mystream.disconnect()
+	emailconfig = config['email']
+	if emailconfig:
+        USE_EMAIL = emailconfig.getboolean('USE_EMAIL', False)
+        EMAIL_SPLIT_VALUE = emailconfig.getint('SPLIT_VALUE', 0)
+        EMAIL_TO_ADDRESS = emailconfig.get('TO_ADDRESS')
+        EMAIL_FROM_ADDRESS = emailconfig.get('FROM_ADDRESS')
+        EMAIL_SUBJECT = emailconfig.get('SUBJECT')
+        EMAIL_HOST = emailconfig.get('HOST')
+		
+	elasticconfig = config['elastic']
+	if elasticconfig:
+		USE_ELASTIC = elasticconfig.getboolean('USE_EMAIL', False)
+		ELASTIC_UNAME = elasticconfig.get('UNAME')
+		ELASTIC_PASSWORD = elasticconfig.get('PASSWORD')
+		ELASTIC_HOST = elasticconfig.get('HOST')
+		ELASTIC_PORT = elasticconfig.getint('PORT', 9200)
+	
+if __name__ == "__main__":
+	
+
+	while CONTINUE_RUNNING:
+		streamlistener = DumpMonStreamListener()
+		mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
+		try:
+			mystream.filter(follow=search_users, track=list(search_regexes.keys()))
+		except KeyboardInterrupt:
+			print('keyboard interrupt happened')
+			CONTINUE_RUNNING = False
+			mystream.disconnect()
+		except Exception as ex:
+			print('there was an issue waiting 10 minutes before trying again' + str(ex))
+			time.sleep(600)
+			mystream.disconnect()
 #__EOF__
