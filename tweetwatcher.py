@@ -12,12 +12,12 @@ from urllib.request import urlopen
 from elasticsearch import Elasticsearch
 
 #email stuff
-USE_EMAIL = True
+USE_EMAIL = False
 EMAIL_SPLIT_VALUE = 4 #if the calculated value is greater than this value it will send an email
-EMAIL_TO_ADDRESS = 'email'
-EMAIL_FROM_ADDRESS = 'email'
+EMAIL_TO_ADDRESS = 'localhost@localhost'
+EMAIL_FROM_ADDRESS = 'localhost@localhost'
 EMAIL_SUBJECT = 'TWITTERBOT HIT:'
-EMAIL_HOST = 'emailserver'
+EMAIL_HOST = 'localhost'
 
 # access keys
 TWITTER_CONSUMER_KEY = ''
@@ -27,19 +27,18 @@ TWITTER_ACCESS_SECRET = ''
 
 #elasticsearch junk
 USE_ELASTIC = False
-ELASTIC_UNAME = ''
-ELASTIC_PASSWORD = ''
-ELASTIC_HOST = ''
+ELASTIC_UNAME = 'elastic'
+ELASTIC_PASSWORD = 'changme'
+ELASTIC_HOST = 'localhost'
 ELASTIC_PORT = 9200
+
+#file system
+USE_FILE = True
+FILE_PATH = 'queued/'
 
 
 #program variables
 CONTINUE_RUNNING = True
-
-# setup api and authenticate
-auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
-auth.set_access_token(ACCESS_TOKEN, ACCESS_SECRET)
-api = tweepy.API(auth)
 
 #Search regexes are the keywords to search for and the regex with values and multipliers
 #example 'word/wordstosearchfor': [re.compile('regexofwordstosearchfor', re.IGNORECASE), weight, multiplier]
@@ -47,16 +46,13 @@ api = tweepy.API(auth)
 #The regex is used to search for the words in the returned tweets
 #The weight is how much you care about the word
 #The multiplier would be for words that are not nescessarily important but are important if you see them with the other keywords
-search_regexes = {
-				}
+SEARCH_REGEXES = {}
 				  
 #special user ids to watch the default is dumpmon but you can add more if there are ones you are really interested in
-search_users = ['1231625892']
+SEARCH_USERS = ['1231625892']
+OUTPUT_FIELDS = ['calculatedvalue','markers','username','id','text','otherdata', 'created_at']
 
-
-outputfields = ['calculatedvalue','markers','username','id','text','otherdata', 'created_at']
-
-es = Elasticsearch(http_auth=(ELASTIC_UNAME, ELASTIC_PASSWORD))
+ES = Elasticsearch()
 
 def getinfovalue(data, multiplier=1):
 	'''
@@ -64,13 +60,13 @@ def getinfovalue(data, multiplier=1):
 	'''
 	weight = 0
 	matches = list()
-	for key, val in search_regexes.items():
+	for key, val in SEARCH_REGEXES.items():
 		if val[0].search(data):
 			matches.append(key)
 			weight += val[1]
 			multiplier += val[2]
 	calculatedvalue = weight * multiplier
-	if calculatedvalue >= SPLIT_VALUE and USE_EMAIL:
+	if calculatedvalue >= EMAIL_SPLIT_VALUE and USE_EMAIL:
 		sendmessage(data, matches, calculatedvalue)
 	return (calculatedvalue, matches)
 
@@ -79,14 +75,35 @@ def sendmessage(dat, keys, calcval):
 	Send an email with the data that got caught 
 	'''
 	msg = MIMEText(dat)
-	msg['Subject'] = SUBJECT + str(calcval) + ' ' + ':'.join(keys)
-	msg['From'] = FROM_ADDRESS
-	msg['To'] = TO_ADDRESS
-	s = smtplib.SMTP(EMAIL_SERVER)
+	msg['Subject'] = EMAIL_SUBJECT + str(calcval) + ' ' + ':'.join(keys)
+	msg['From'] = EMAIL_FROM_ADDRESS
+	msg['To'] = EMAIL_TO_ADDRESS
+	s = smtplib.SMTP(EMAIL_HOST)
 	s.send_message(msg)
 	s.quit()
-	
-class DumpMonStreamListener(tweepy.StreamListener):
+
+def fetchDump(dumpUrl, filedatecode, created_at):
+	filename = dumpUrl.split('/')[-1:]
+	f = urlopen(dumpUrl)
+	tempdata = f.read()
+	weight = getinfovalue(tempdata.decode('utf-8', errors='ignore'), 2) #dumps get a higher multiplier
+	print(str(weight[0]) + filename[0])
+	if weight[0] > 0:
+		json_data = {}
+		json_data['weight'] = weight[0]
+		json_data['weight_keys'] = weight[1]
+		json_data['text'] = tempdata.decode('utf-8', errors='ignore')
+		json_data['dump_url'] = dumpUrl
+		json_data['filename'] = filename[0]
+		json_data['created_at'] = created_at
+		json_data['user'] = {'name':'dumpmon'}
+		ES.index(index="twitter", doc_type="dump", body=json.dumps(json_data))
+	fh = open(FILE_PATH + filedatecode + '/' + str(weight[0]) + '_'.join(weight[1]) + '-' + filename[0], "wb")
+	fh.write(tempdata)
+	fh.close()
+	return
+
+class StreamListener(tweepy.StreamListener):
 	'''
 	listener for tweepy stream
 	'''
@@ -117,14 +134,14 @@ class DumpMonStreamListener(tweepy.StreamListener):
 				json_data = status._json
 				json_data['weight'] = tempvalues[0]
 				json_data['weight_keys'] = tempvalues[1]
-				es.index(index="twitter", doc_type="tweet", body=json_data)
+				ES.index(index="twitter", doc_type="tweet", body=json_data)
 				print(str(tempvalues[0]) + " " + ':'.join(tempvalues[1]))
-				if not os.path.exists("queued/" + filedatecode + '/' + "tweetlog.csv"):
-					with open("queued/" + filedatecode + '/' + "tweetlog.csv", 'w', encoding='UTF-8') as fh:
-						writer = csv.DictWriter(fh, fieldnames=outputfields, lineterminator='\n')
+				if not os.path.exists(FILE_PATH + filedatecode + '/' + "tweetlog.csv"):
+					with open(FILE_PATH + filedatecode + '/' + "tweetlog.csv", 'w', encoding='UTF-8') as fh:
+						writer = csv.DictWriter(fh, fieldnames=OUTPUT_FIELDS, lineterminator='\n')
 						writer.writeheader()
-				with open("queued/" + filedatecode + '/' + "tweetlog.csv", "a", encoding='UTF-8') as fh:
-					writer = csv.DictWriter(fh, fieldnames=outputfields, lineterminator='\n', escapechar='\\')
+				with open(FILE_PATH + filedatecode + '/' + "tweetlog.csv", "a", encoding='UTF-8') as fh:
+					writer = csv.DictWriter(fh, fieldnames=OUTPUT_FIELDS, lineterminator='\n', escapechar='\\')
 					writer.writerow(outputdict)
 			
 		
@@ -136,35 +153,13 @@ class DumpMonStreamListener(tweepy.StreamListener):
 		else:
 			print(status_code)
 			return False
-		
 
-def fetchDump(dumpUrl, filedatecode, created_at):
-	filename = dumpUrl.split('/')[-1:]
-	f = urlopen(dumpUrl)
-	tempdata = f.read()
-	weight = getinfovalue(tempdata.decode('utf-8', errors='ignore'), 2) #dumps get a higher multiplier
-	print(str(weight[0]) + filename[0])
-	if weight[0] > 0:
-		json_data = {}
-		json_data['weight'] = weight[0]
-		json_data['weight_keys'] = weight[1]
-		json_data['text'] = tempdata.decode('utf-8', errors='ignore')
-		json_data['dump_url'] = dumpUrl
-		json_data['filename'] = filename[0]
-		json_data['created_at'] = created_at
-		json_data['user'] = {'name':'dumpmon'}
-		es.index(index="twitter", doc_type="dump", body=json.dumps(json_data))
-	fh = open("queued/%s" % filedatecode + '/' + str(weight[0]) + '_'.join(weight[1]) + '-' + filename[0], "wb")
-	fh.write(tempdata)
-	fh.close()
-	return
-
-def parseconfig():
+def parseconfig(filename='config.ini'):
     '''
     Parses the config into its global variables
     '''
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read(filename)
     twitterconfig = config['twitter']
     if twitterconfig:
         TWITTER_CONSUMER_KEY = twitterconfig.get('CONSUMER_KEY')
@@ -174,29 +169,45 @@ def parseconfig():
 	
 	emailconfig = config['email']
 	if emailconfig:
-        USE_EMAIL = emailconfig.getboolean('USE_EMAIL', False)
-        EMAIL_SPLIT_VALUE = emailconfig.getint('SPLIT_VALUE', 0)
-        EMAIL_TO_ADDRESS = emailconfig.get('TO_ADDRESS')
-        EMAIL_FROM_ADDRESS = emailconfig.get('FROM_ADDRESS')
-        EMAIL_SUBJECT = emailconfig.get('SUBJECT')
-        EMAIL_HOST = emailconfig.get('HOST')
+        USE_EMAIL = emailconfig.getboolean('USE_EMAIL', USE_EMAIL)
+        EMAIL_SPLIT_VALUE = emailconfig.getint('SPLIT_VALUE', EMAIL_SPLIT_VALUE)
+        EMAIL_TO_ADDRESS = emailconfig.get('TO_ADDRESS', EMAIL_TO_ADDRESS)
+        EMAIL_FROM_ADDRESS = emailconfig.get('FROM_ADDRESS', EMAIL_FROM_ADDRESS)
+        EMAIL_SUBJECT = emailconfig.get('SUBJECT', EMAIL_SUBJECT)
+        EMAIL_HOST = emailconfig.get('HOST', EMAIL_HOST)
 		
 	elasticconfig = config['elastic']
 	if elasticconfig:
-		USE_ELASTIC = elasticconfig.getboolean('USE_EMAIL', False)
-		ELASTIC_UNAME = elasticconfig.get('UNAME')
-		ELASTIC_PASSWORD = elasticconfig.get('PASSWORD')
-		ELASTIC_HOST = elasticconfig.get('HOST')
-		ELASTIC_PORT = elasticconfig.getint('PORT', 9200)
+		USE_ELASTIC = elasticconfig.getboolean('USE_EMAIL', USE_ELASTIC)
+		ELASTIC_UNAME = elasticconfig.get('UNAME', ELASTIC_UNAME)
+		ELASTIC_PASSWORD = elasticconfig.get('PASSWORD', ELASTIC_PASSWORD)
+		ELASTIC_HOST = elasticconfig.get('HOST', ELASTIC_HOST)
+		ELASTIC_PORT = elasticconfig.getint('PORT', ELASTIC_PORT)
+		
+	fileconfig = config['file']
+	if fileconfig:
+		USE_FILE = elasticconfig.getboolean('USE_FILE', USE_FILE)
+		FILE_PATH = elasticconfig.get('PATH', FILE_PATH)
 	
 if __name__ == "__main__":
+	#parse the config file so we can set everything up
+	parseconfig()
 	
+	# setup api and authenticate
+	auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET)
+	auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET)
+	api = tweepy.API(auth)
+	
+	#setup elasticsearch connection
+	if USE_ELASTIC:
+		ES = Elasticsearch(hosts=[{'host': ELASTIC_HOST, 'port': ELASTIC_PORT}],http_auth=(ELASTIC_UNAME, ELASTIC_PASSWORD))
 
+	
 	while CONTINUE_RUNNING:
-		streamlistener = DumpMonStreamListener()
+		streamlistener = StreamListener()
 		mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
 		try:
-			mystream.filter(follow=search_users, track=list(search_regexes.keys()))
+			mystream.filter(follow=SEARCH_USERS, track=list(SEARCH_REGEXES.keys()))
 		except KeyboardInterrupt:
 			print('keyboard interrupt happened')
 			CONTINUE_RUNNING = False
