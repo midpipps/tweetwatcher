@@ -47,7 +47,7 @@ CONTINUE_RUNNING = True
 #The weight is how much you care about the word
 #The multiplier would be for words that are not nescessarily important but are important if you see them with the other keywords
 SEARCH_REGEXES = {}
-				  
+
 #special user ids to watch the default is dumpmon but you can add more if there are ones you are really interested in
 SEARCH_USERS = ['1231625892']
 OUTPUT_FIELDS = ['calculatedvalue','markers','username','id','text','otherdata', 'created_at']
@@ -88,7 +88,7 @@ def fetchDump(dumpUrl, filedatecode, created_at):
 	tempdata = f.read()
 	weight = getinfovalue(tempdata.decode('utf-8', errors='ignore'), 2) #dumps get a higher multiplier
 	print(str(weight[0]) + filename[0])
-	if weight[0] > 0:
+	if weight[0] > 0 and USE_ELASTIC:
 		json_data = {}
 		json_data['weight'] = weight[0]
 		json_data['weight_keys'] = weight[1]
@@ -131,10 +131,11 @@ class StreamListener(tweepy.StreamListener):
 			outputdict['markers'] = ':'.join(tempvalues[1])
 			outputdict['created_at'] = status.created_at
 			if (tempvalues[0] > 0):
-				json_data = status._json
-				json_data['weight'] = tempvalues[0]
-				json_data['weight_keys'] = tempvalues[1]
-				ES.index(index="twitter", doc_type="tweet", body=json_data)
+				if USE_ELASTIC:
+					json_data = status._json
+					json_data['weight'] = tempvalues[0]
+					json_data['weight_keys'] = tempvalues[1]
+					ES.index(index="twitter", doc_type="tweet", body=json_data)
 				print(str(tempvalues[0]) + " " + ':'.join(tempvalues[1]))
 				if not os.path.exists(FILE_PATH + filedatecode + '/' + "tweetlog.csv"):
 					with open(FILE_PATH + filedatecode + '/' + "tweetlog.csv", 'w', encoding='UTF-8') as fh:
@@ -155,30 +156,34 @@ class StreamListener(tweepy.StreamListener):
 			return False
 
 def parseconfig(filename='config.ini'):
-    '''
-    Parses the config into its global variables
-    '''
-    config = configparser.ConfigParser()
-    config.read(filename)
-    twitterconfig = config['twitter']
-    if twitterconfig:
-        TWITTER_CONSUMER_KEY = twitterconfig.get('CONSUMER_KEY')
-        TWITTER_CONSUMER_SECRET = twitterconfig.get('CONSUMER_SECRET')
-        TWITTER_ACCESS_TOKEN = twitterconfig.get('ACCESS_TOKEN')
-        TWITTER_ACCESS_SECRET = twitterconfig.get('ACCESS_SECRET')
-	
+	'''
+	Parses the config into its global variables
+	'''
+	global TWITTER_ACCESS_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET
+	global USE_EMAIL, EMAIL_FROM_ADDRESS, EMAIL_HOST, EMAIL_SPLIT_VALUE, EMAIL_SUBJECT, EMAIL_TO_ADDRESS
+	global USE_ELASTIC, ELASTIC_HOST, ELASTIC_PASSWORD, ELASTIC_PORT, ELASTIC_UNAME
+	global USE_FILE, FILE_PATH
+	config = configparser.ConfigParser()
+	config.read(filename)
+	twitterconfig = config['twitter']
+	if twitterconfig:
+		TWITTER_CONSUMER_KEY = twitterconfig.get('CONSUMER_KEY')
+		TWITTER_CONSUMER_SECRET = twitterconfig.get('CONSUMER_SECRET')
+		TWITTER_ACCESS_TOKEN = twitterconfig.get('ACCESS_TOKEN')
+		TWITTER_ACCESS_SECRET = twitterconfig.get('ACCESS_SECRET')
+
 	emailconfig = config['email']
 	if emailconfig:
-        USE_EMAIL = emailconfig.getboolean('USE_EMAIL', USE_EMAIL)
-        EMAIL_SPLIT_VALUE = emailconfig.getint('SPLIT_VALUE', EMAIL_SPLIT_VALUE)
-        EMAIL_TO_ADDRESS = emailconfig.get('TO_ADDRESS', EMAIL_TO_ADDRESS)
-        EMAIL_FROM_ADDRESS = emailconfig.get('FROM_ADDRESS', EMAIL_FROM_ADDRESS)
-        EMAIL_SUBJECT = emailconfig.get('SUBJECT', EMAIL_SUBJECT)
-        EMAIL_HOST = emailconfig.get('HOST', EMAIL_HOST)
+		USE_EMAIL = emailconfig.getboolean('USE_EMAIL', USE_EMAIL)
+		EMAIL_SPLIT_VALUE = emailconfig.getint('SPLIT_VALUE', EMAIL_SPLIT_VALUE)
+		EMAIL_TO_ADDRESS = emailconfig.get('TO_ADDRESS', EMAIL_TO_ADDRESS)
+		EMAIL_FROM_ADDRESS = emailconfig.get('FROM_ADDRESS', EMAIL_FROM_ADDRESS)
+		EMAIL_SUBJECT = emailconfig.get('SUBJECT', EMAIL_SUBJECT)
+		EMAIL_HOST = emailconfig.get('HOST', EMAIL_HOST)
 		
 	elasticconfig = config['elastic']
 	if elasticconfig:
-		USE_ELASTIC = elasticconfig.getboolean('USE_EMAIL', USE_ELASTIC)
+		USE_ELASTIC = elasticconfig.getboolean('USE_ELASTIC', USE_ELASTIC)
 		ELASTIC_UNAME = elasticconfig.get('UNAME', ELASTIC_UNAME)
 		ELASTIC_PASSWORD = elasticconfig.get('PASSWORD', ELASTIC_PASSWORD)
 		ELASTIC_HOST = elasticconfig.get('HOST', ELASTIC_HOST)
@@ -188,11 +193,12 @@ def parseconfig(filename='config.ini'):
 	if fileconfig:
 		USE_FILE = elasticconfig.getboolean('USE_FILE', USE_FILE)
 		FILE_PATH = elasticconfig.get('PATH', FILE_PATH)
-	
-if __name__ == "__main__":
+
+def main():
+	global ES, CONTINUE_RUNNING
 	#parse the config file so we can set everything up
 	parseconfig()
-	
+
 	# setup api and authenticate
 	auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET)
 	auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET)
@@ -201,8 +207,7 @@ if __name__ == "__main__":
 	#setup elasticsearch connection
 	if USE_ELASTIC:
 		ES = Elasticsearch(hosts=[{'host': ELASTIC_HOST, 'port': ELASTIC_PORT}],http_auth=(ELASTIC_UNAME, ELASTIC_PASSWORD))
-
-	
+		
 	while CONTINUE_RUNNING:
 		streamlistener = StreamListener()
 		mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
@@ -216,4 +221,7 @@ if __name__ == "__main__":
 			print('there was an issue waiting 10 minutes before trying again' + str(ex))
 			time.sleep(600)
 			mystream.disconnect()
+
+if __name__ == "__main__":
+	main()
 #__EOF__
