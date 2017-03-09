@@ -214,7 +214,7 @@ def parseconfig(filename='config.ini'):
 	watchconfig = config['watchlist']
 	if watchconfig:
 		WATCHLIST_PATH = watchconfig.get('WATCHLIST_PATH', WATCHLIST_PATH)
-		WATCHLIST_TIME_BETWEEN_UPDATES = watchconfig.get('WATCHLIST_TIME_BETWEEN_UPDATES', WATCHLIST_TIME_BETWEEN_UPDATES)
+		WATCHLIST_TIME_BETWEEN_UPDATES = watchconfig.getint('WATCHLIST_TIME_BETWEEN_UPDATES', WATCHLIST_TIME_BETWEEN_UPDATES)
 
 	emailconfig = config['email']
 	if emailconfig:
@@ -260,7 +260,6 @@ def main():
 			if reloadwatchlist() and mystream.running:
 				mystream.disconnect()
 			mystream.filter(follow=SEARCH_USERS, track=list(WATCHLIST.keys()), async=True)
-			reloadwatchlist()
 			time.sleep(WATCHLIST_TIME_BETWEEN_UPDATES)
 		except KeyboardInterrupt:
 			print('keyboard interrupt happened')
