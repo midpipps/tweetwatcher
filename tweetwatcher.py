@@ -36,6 +36,11 @@ ELASTIC_PORT = 9200
 USE_FILE = True
 FILE_PATH = 'queued/'
 
+#Watch list system
+WATCHLIST_PATH = 'watchlist.csv'
+WATCHLIST_TIME_BETWEEN_UPDATES = 3600
+WATCHLIST = {}
+WATCHLIST_CSV_FIELDS = ['filterword', 'filterregex', 'weight', 'multiplier']
 
 #program variables
 CONTINUE_RUNNING = True
@@ -46,7 +51,7 @@ CONTINUE_RUNNING = True
 #The regex is used to search for the words in the returned tweets
 #The weight is how much you care about the word
 #The multiplier would be for words that are not nescessarily important but are important if you see them with the other keywords
-SEARCH_REGEXES = {}
+
 
 #special user ids to watch the default is dumpmon but you can add more if there are ones you are really interested in
 SEARCH_USERS = ['1231625892']
@@ -60,7 +65,7 @@ def getinfovalue(data, multiplier=1):
 	'''
 	weight = 0
 	matches = list()
-	for key, val in SEARCH_REGEXES.items():
+	for key, val in WATCHLIST.items():
 		if val[0].search(data):
 			matches.append(key)
 			weight += val[1]
@@ -155,6 +160,39 @@ class StreamListener(tweepy.StreamListener):
 			print(status_code)
 			return False
 
+def reloadwatchlist():
+	'''
+	Reloads the watchlist with the latest data
+	'''
+	global WATCHLIST
+	listchanged = False
+	keywordslist = list()
+	with open(WATCHLIST_PATH) as csvfile:
+		reader = csv.DictReader(csvfile, fieldnames=WATCHLIST_CSV_FIELDS)
+		for row in reader:
+			if row['filterword'] == 'filterword':
+				continue
+			keywordslist.append(row['filterword'])
+			if row['filterword'] in WATCHLIST:
+				if not (WATCHLIST[row['filterword']][0].pattern == row['filterregex'] and 
+						WATCHLIST[row['filterword']][1] == float(row['weight']) and
+						WATCHLIST[row['filterword']][2] == float(row['multiplier'])):
+					listchanged = True
+					WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
+			else:
+				listchanged = True
+				WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
+	#clear out any watchlist elements that are not in our list
+	removelist = list()
+	for key in WATCHLIST.keys():
+		if not key in keywordslist:
+			removelist.append(key)
+	for key in removelist:
+		del WATCHLIST[key]
+		listchanged = True
+	return listchanged
+
+
 def parseconfig(filename='config.ini'):
 	'''
 	Parses the config into its global variables
@@ -163,6 +201,7 @@ def parseconfig(filename='config.ini'):
 	global USE_EMAIL, EMAIL_FROM_ADDRESS, EMAIL_HOST, EMAIL_SPLIT_VALUE, EMAIL_SUBJECT, EMAIL_TO_ADDRESS
 	global USE_ELASTIC, ELASTIC_HOST, ELASTIC_PASSWORD, ELASTIC_PORT, ELASTIC_UNAME
 	global USE_FILE, FILE_PATH
+	global WATCHLIST_PATH, WATCHLIST_TIME_BETWEEN_UPDATES
 	config = configparser.ConfigParser()
 	config.read(filename)
 	twitterconfig = config['twitter']
@@ -171,6 +210,11 @@ def parseconfig(filename='config.ini'):
 		TWITTER_CONSUMER_SECRET = twitterconfig.get('CONSUMER_SECRET')
 		TWITTER_ACCESS_TOKEN = twitterconfig.get('ACCESS_TOKEN')
 		TWITTER_ACCESS_SECRET = twitterconfig.get('ACCESS_SECRET')
+	
+	watchconfig = config['watchlist']
+	if watchconfig:
+		WATCHLIST_PATH = watchconfig.get('WATCHLIST_PATH', WATCHLIST_PATH)
+		WATCHLIST_TIME_BETWEEN_UPDATES = watchconfig.get('WATCHLIST_TIME_BETWEEN_UPDATES', WATCHLIST_TIME_BETWEEN_UPDATES)
 
 	emailconfig = config['email']
 	if emailconfig:
@@ -212,7 +256,12 @@ def main():
 		streamlistener = StreamListener()
 		mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
 		try:
-			mystream.filter(follow=SEARCH_USERS, track=list(SEARCH_REGEXES.keys()))
+			#reload the watchlist and if it returns true and the stream is running shut off the stream so we can restart it
+			if reloadwatchlist() and mystream.running:
+				mystream.disconnect()
+			mystream.filter(follow=SEARCH_USERS, track=list(WATCHLIST.keys()), async=True)
+			reloadwatchlist()
+			time.sleep(WATCHLIST_TIME_BETWEEN_UPDATES)
 		except KeyboardInterrupt:
 			print('keyboard interrupt happened')
 			CONTINUE_RUNNING = False

@@ -1,0 +1,6 @@
+filterword, filterregex, weight, multiplier
+batman, batman, 2.0, 0.0
+flash, flash, 2.0, 0.0
+superman, superman, 2.0, 0.0
+justiceleague.com, justiceleague\.com, 1.0, 0.0
+large explosion, large explosion, 0.0, 0.5
