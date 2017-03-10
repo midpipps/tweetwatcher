@@ -1,4 +1,5 @@
 import tweepy
+import sys
 import csv
 import time
 import datetime
@@ -271,7 +272,7 @@ def main():
 	
 	#setup the file logger if we are using it and update the loglevel
 	if USE_FILELOG:
-		logfilehandler = RotatingFileHandler(LOG_FOLDER, backupCount=3, maxBytes=1000)
+		logfilehandler = RotatingFileHandler(LOG_FOLDER, backupCount=3, maxBytes=1000000)
 		logfilehandler.setFormatter(LOGFORMATTER)
 		LOGGER.addHandler(logfilehandler)
 	logging.critical('Setting the logging level to %s', LOG_LEVEL)
