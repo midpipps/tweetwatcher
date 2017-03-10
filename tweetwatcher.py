@@ -40,7 +40,7 @@ FILE_PATH = 'queued/'
 
 #Log config options
 USE_FILELOG = False
-LOG_LEVEL = 'DEBUG'
+LOG_LEVEL = 'INFO'
 LOG_FOLDER = 'logs/'
 
 LOGGER = logging.getLogger()
@@ -274,6 +274,7 @@ def main():
 		logfilehandler = RotatingFileHandler(LOG_FOLDER, backupCount=3, maxBytes=1000)
 		logfilehandler.setFormatter(LOGFORMATTER)
 		LOGGER.addHandler(logfilehandler)
+	logging.critical('Setting the logging level to %s', LOG_LEVEL)
 	LOGGER.setLevel(LOG_LEVEL)
 
 	# setup api and authenticate
