@@ -163,14 +163,17 @@ class StreamListener(tweepy.StreamListener):
 					writer = csv.DictWriter(fh, fieldnames=OUTPUT_FIELDS, lineterminator='\n', escapechar='\\')
 					writer.writerow(outputdict)
 			
-		
+	def on_exception(self, exc):
+		logging.error('an exception was thrown %s', str(exc))
+		raise exc
+
 	def on_error(self, status_code):
 		if status_code == 420:
 			#returning False in on_data disconnects the stream
-			logging.exception('Being Rate limited stopping the listener')
+			logging.error('Being Rate limited stopping the listener')
 			return False
 		else:
-			logging.exception('%s was set by twitter something is wrong', status_code)
+			logging.error('%s was set by twitter something is wrong', status_code)
 			return False
 
 def reloadwatchlist():
@@ -288,14 +291,14 @@ def main():
 	if USE_ELASTIC:
 		logging.info('Creating the connection to the elasticsearch')
 		ES = Elasticsearch(hosts=[{'host': ELASTIC_HOST, 'port': ELASTIC_PORT}],http_auth=(ELASTIC_UNAME, ELASTIC_PASSWORD))
-		
+	
+	logging.info('Creating the stream listener')
+	streamlistener = StreamListener()
+	mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
 	while CONTINUE_RUNNING:
-		logging.info('Creating the stream listener')
-		streamlistener = StreamListener()
-		mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
 		try:
 			#reload the watchlist and if it returns true start/restart the stream filter
-			if reloadwatchlist():
+			if reloadwatchlist() or not mystream.running:
 				if mystream.running:
 					logging.critical('shutting down stream to reload watch list')
 					mystream.disconnect()
@@ -304,11 +307,11 @@ def main():
 			logging.info('waiting %s to check file again', WATCHLIST_TIME_BETWEEN_UPDATES)
 			time.sleep(WATCHLIST_TIME_BETWEEN_UPDATES)
 		except KeyboardInterrupt:
-			logging.exception('keyboard interrupt happened shutting everything down')
+			logging.error('keyboard interrupt happened shutting everything down')
 			CONTINUE_RUNNING = False
 			mystream.disconnect()
 		except Exception as ex:
-			logging.exception('there was an issue waiting 10 minutes before trying again' + str(ex))
+			logging.error('there was an issue waiting 10 minutes before trying again' + str(ex))
 			time.sleep(600)
 			mystream.disconnect()
 
