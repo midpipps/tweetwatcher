@@ -9,6 +9,7 @@ import smtplib
 import json
 import configparser
 import logging
+import io
 from logging.handlers import RotatingFileHandler
 from email.mime.text import MIMEText
 from urllib.request import urlopen
@@ -184,21 +185,14 @@ def reloadwatchlist():
 	global WATCHLIST
 	listchanged = False
 	keywordslist = list()
-	with open(WATCHLIST_PATH) as csvfile:
-		reader = csv.DictReader(csvfile, fieldnames=WATCHLIST_CSV_FIELDS)
-		for row in reader:
-			if row['filterword'] == 'filterword':
-				continue
-			keywordslist.append(row['filterword'])
-			if row['filterword'] in WATCHLIST:
-				if not (WATCHLIST[row['filterword']][0].pattern == row['filterregex'] and 
-						WATCHLIST[row['filterword']][1] == float(row['weight']) and
-						WATCHLIST[row['filterword']][2] == float(row['multiplier'])):
-					listchanged = True
-					WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
-			else:
-				listchanged = True
-				WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
+	#if it is a url we need to get the file from the url not a file open
+	if WATCHLIST_PATH.lower().startswith('http'):
+		with urlopen(WATCHLIST_PATH) as csvfile:
+			listchanged, keywordslist = readwatchlistcsv(io.StringIO(csvfile.read().decode('utf-8', errors='ignore')))
+	else:
+		with open(WATCHLIST_PATH) as csvfile:
+			listchanged, keywordslist = readwatchlistcsv(csvfile)
+
 	#clear out any watchlist elements that are not in our list
 	removelist = list()
 	for key in WATCHLIST.keys():
@@ -210,6 +204,30 @@ def reloadwatchlist():
 	logging.info('finished parsing watchlist file %s', WATCHLIST_PATH)
 	return listchanged
 
+def readwatchlistcsv(csvdata):
+	'''
+	This just reads the data into the watch list
+	'''
+	global WATCHLIST
+	listchanged = False
+	reader = csv.DictReader(csvdata, fieldnames=WATCHLIST_CSV_FIELDS)
+	keywordslist = list()
+	print(csvdata)
+	for row in reader:
+		print(row)
+		if row['filterword'] == 'filterword':
+			continue
+		keywordslist.append(row['filterword'])
+		if row['filterword'] in WATCHLIST:
+			if not (WATCHLIST[row['filterword']][0].pattern == row['filterregex'] and 
+					WATCHLIST[row['filterword']][1] == float(row['weight']) and
+					WATCHLIST[row['filterword']][2] == float(row['multiplier'])):
+				listchanged = True
+				WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
+		else:
+			listchanged = True
+			WATCHLIST[row['filterword']] = [re.compile(row['filterregex'], re.IGNORECASE), float(row['weight']), float(row['multiplier'])]
+	return [listchanged, keywordslist]
 
 def parseconfig(filename='config.ini'):
 	'''
