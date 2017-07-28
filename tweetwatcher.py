@@ -212,9 +212,7 @@ def readwatchlistcsv(csvdata):
 	listchanged = False
 	reader = csv.DictReader(csvdata, fieldnames=WATCHLIST_CSV_FIELDS)
 	keywordslist = list()
-	print(csvdata)
 	for row in reader:
-		print(row)
 		if row['filterword'] == 'filterword':
 			continue
 		keywordslist.append(row['filterword'])
@@ -320,6 +318,8 @@ def main():
 				if mystream.running:
 					logging.critical('shutting down stream to reload watch list')
 					mystream.disconnect()
+					del mystream
+					mystream = tweepy.Stream(auth=api.auth, listener=streamlistener)
 				logging.critical('starting the stream filter with %s', WATCHLIST.keys())
 				mystream.filter(follow=SEARCH_USERS, track=list(WATCHLIST.keys()), async=True)
 			logging.info('waiting %s to check file again', WATCHLIST_TIME_BETWEEN_UPDATES)
